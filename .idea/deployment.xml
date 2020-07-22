@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always" serverName="Alpaca_ellipse">
+    <serverData>
+      <paths name="Alpaca_ellipse">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/data/isaackang/koo/neural_ellipse_fitting_1" local="$USER_HOME$/D/drive/Koo/neural_ellipse_fitting_1" web="/home/isaackang/D/drive/Koo/neural_ellipse_fitting_1" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>
