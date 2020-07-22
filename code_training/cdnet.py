@@ -5,7 +5,7 @@ import sys
 import time
 import tqdm
 import graph_structures
-#from modules import resfcn256
+import cv2
 
 sys.path.append(os.path.join(os.getcwd(), "code_commons"))
 from global_constants import *
@@ -39,16 +39,15 @@ import dirt_utilities
 
 class CDnet(object):
 
-    def __init__(self, FLAGS=None):
-
-        self.FLAGS = FLAGS
+    def __init__(self, args=None):
+        self.args = args
 
         # input dim
         """
         self.input_image_width = IMAGE_WIDTH
         self.input_image_height = IMAGE_HEIGHT
         self.input_num_channels = IMAGE_CHANNEL
-        self.training_batch_size = self.FLAGS.batch_size
+        self.training_batch_size = self.args.batch_size
 
         self.input_image_size = IMAGE_WIDTH
         self.max_feature_depth = 256 # 256
@@ -204,7 +203,7 @@ class CDnet(object):
 
         # tfrecord
         if len(datadir) == 1 and os.path.splitext(datadir[0])[-1] == ".tfrecords":
-            batch_data_dict = make_batch(datadir, self.FLAGS.batch_size, shuffle=True, num_epochs=10000)
+            batch_data_dict = make_batch(datadir, self.args.batch_size, shuffle=True, num_epochs=10000)
 
         else:
             ########################## data pipeline ####################
@@ -217,8 +216,8 @@ class CDnet(object):
 
             # generate batch
             batch_generator = train_data_provider.generate_batch(data_generator,
-                                                                 batch_size=self.FLAGS.batch_size,
-                                                                 num_processes=self.FLAGS.num_preprocessing_processes)
+                                                                 batch_size=self.args.batch_size,
+                                                                 num_processes=self.args.num_preprocessing_processes)
 
             lock = threading.Lock()
 
@@ -234,7 +233,7 @@ class CDnet(object):
 
             for idx, name in enumerate(DATA_FIELD_NAMES):
                 batch_data_dict[name] = batch_list[idx]
-                batch_data_dict[name].set_shape((self.FLAGS.batch_size,) + DATA_FIELD_SHAPES[idx])
+                batch_data_dict[name].set_shape((self.args.batch_size,) + DATA_FIELD_SHAPES[idx])
                 print(DATA_FIELD_NAMES[idx] + ":", batch_data_dict[name].shape, batch_data_dict[name].dtype)
 
         self.batch_data_dict = batch_data_dict
@@ -247,8 +246,8 @@ class CDnet(object):
             print(gpus)
 
         num_gpus = len(gpus)
-        assert(self.FLAGS.batch_size % num_gpus == 0)
-        batch_slice = self.FLAGS.batch_size // num_gpus
+        assert(self.args.batch_size % num_gpus == 0)
+        batch_slice = self.args.batch_size // num_gpus
 
         tower_losses = []
 
@@ -364,7 +363,7 @@ class CDnet(object):
         return x
 
     def add_summary_per_gpu(self, gpu_idx, image_slice, mask_slice, rendering_result, error_map_raw, center_points, all_points, loss, center_distance_loss, region_loss, area_diff_loss):
-        N = self.FLAGS.num_summary_images
+        N = self.args.num_summary_images
 
         #tf.summary.histogram("estimated_corners", center_points)
         #tf.summary.histogram("gt_histogram", mask_slice)
@@ -390,7 +389,7 @@ class CDnet(object):
             images_with_lines = tf.py_func(draw_angle, [images_with_lines[:N], self.estimate_center[:N], self.radius1[:N], self.angle[:N], self.angle_scale,
                                                         self.grad_angle[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
 
-            # 4. Estimate rener
+            # 4. Estimate render
             rendering_result = CDnet.convert_to_color_image(rendering_result)
             rendering_result = tf.py_func(draw_grad, [rendering_result[:N], self.grad_centerx[:N], self.grad_centery[:N], self.grad_angle[:N],
                                                       self.grad_radius1[:N], self.grad_radius2[:N]], tf.float32)
@@ -413,8 +412,9 @@ class CDnet(object):
                  ], axis=2)
             input_prediction = tf.clip_by_value(input_prediction, 0.0, 255.0)
 
-            input_prediction = tf.image.resize_bilinear(input_prediction, (IMAGE_HEIGHT, IMAGE_WIDTH * 5))
-            tf.summary.image("input_prediction gpu:%s" % (gpu_idx), input_prediction, max_outputs=N)
+            self.input_prediction = tf.image.resize_bilinear(input_prediction, (IMAGE_HEIGHT, IMAGE_WIDTH * 5))
+            tf.summary.image("input_prediction gpu:%s" % (gpu_idx), self.input_prediction, max_outputs=N)
+
 
     def add_saver(self):
         self.saver = tf.train.Saver(max_to_keep=5)
@@ -449,9 +449,9 @@ class CDnet(object):
             self.global_step = tf.Variable(0, trainable=False)
 
             self.learning_rate = tf.train.exponential_decay(
-                learning_rate=self.FLAGS.learning_rate,
+                learning_rate=self.args.learning_rate,
                 global_step=self.global_step,
-                decay_steps=self.FLAGS.num_samples_per_learning_rate_half_decay / self.FLAGS.batch_size,
+                decay_steps=self.args.num_samples_per_learning_rate_half_decay / self.args.batch_size,
                 decay_rate=0.5)
 
             optimizer = tf.train.AdamOptimizer(self.learning_rate)
@@ -465,13 +465,13 @@ class CDnet(object):
             self.summaries = tf.summary.merge_all()
 
     def occasional_jobs(self, sess, global_step):
-        ckpt_filename = os.path.join(self.FLAGS.train_dir, "myckpt")
+        ckpt_filename = os.path.join(self.args.train_dir, "myckpt")
 
-        if global_step % self.FLAGS.save_every == 0:
+        if global_step % self.args.save_every == 0:
             save_path = self.saver.save(sess, ckpt_filename, global_step=global_step)
             tqdm.write("saved at" + save_path)
 
-        # if global_step % self.FLAGS.eval_every == 0 and self.num_validation_samples != 0:
+        # if global_step % self.args.eval_every == 0 and self.num_validation_samples != 0:
         #     eval_loss = self.evaluate_validation_loss(sess)
         #     print("evaluation loss:", eval_loss)
         #     summary = tf.Summary()
@@ -481,12 +481,12 @@ class CDnet(object):
 
         # write examples to the examples directory
         """
-        if  global_step % self.FLAGS.save_examples_every == 0:
+        if  global_step % self.args.save_examples_every == 0:
             print("save examples - nothing done")            
         """
 
     def train(self, sess):
-        self.writer = tf.summary.FileWriter(self.FLAGS.train_dir, sess.graph)
+        self.writer = tf.summary.FileWriter(self.args.train_dir, sess.graph)
 
         exp_loss = None
         counter = 0
@@ -504,8 +504,9 @@ class CDnet(object):
                     "loss": self.loss
                 }
 
-                if iter % self.FLAGS.summary_every == 0:
+                if iter % self.args.summary_every == 0:
                     output_feed["summaries"] = self.summaries
+                    output_feed["save_images"] = self.input_prediction
 
                 _results = sess.run(output_feed)
 
@@ -520,8 +521,16 @@ class CDnet(object):
                 global_step = _results["global_step"]
                 learning_rate = _results["learning_rate"]
 
-                if iter % self.FLAGS.summary_every == 0:
+                if iter % self.args.summary_every == 0:
                     self.writer.add_summary(_results["summaries"], global_step=global_step)
+                    save_images = _results["save_images"]
+                    for idx, input_pred in enumerate(save_images):
+                        save_img = input_pred if idx == 0 else np.concatenate((save_img, input_pred), axis=0)
+                    save_img = cv2.cvtColor(save_img, cv2.COLOR_BGR2RGB)
+                    number = np.random.randint(100)
+                    if not os.path.exists(self.args.save_imgs_dir):
+                        os.makedirs(self.args.save_imgs_dir)
+                    cv2.imwrite(self.args.save_imgs_dir + '/' + str(number).zfill(2) +'.png', save_img)
 
                 cur_loss = _results["loss"]
 
