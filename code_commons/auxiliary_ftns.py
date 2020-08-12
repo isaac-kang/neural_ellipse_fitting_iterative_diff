@@ -26,15 +26,6 @@ def transformation(cx, cy, theta, lambda1, lambda2, name=None):
 
         return tf.squeeze(tf.transpose(tf.convert_to_tensor(elements, dtype=tf.float32)))
 
-        """
-        return tf.stack([
-            tf.stack([ lambda1 * tf.cos(theta), - lambda2 * tf.sin(theta), cx ], axis=-1),  # indexed by *, x/y/z (out)
-            tf.stack([ lambda1 * tf.sin(theta), lambda2 * tf.cos(theta), cy ], axis=-1),
-            tf.stack([zeros, zeros, ones ], axis=-1)
-        ], axis=-2)  # indexed by *, x/y/z/w (in), x/y/z/w (out)
-        """
-
-
 def draw_angle(img, center, radius, angle, angle_scale, grad_angle, r1_pts, r2_pts):
     img = img.copy()
     for i in range(img.shape[0]):
@@ -55,7 +46,7 @@ def draw_angle(img, center, radius, angle, angle_scale, grad_angle, r1_pts, r2_p
 
         font = cv2.FONT_HERSHEY_SIMPLEX
         text_angle = angle[i, 0] * 360
-        cv2.putText(img[i], str(text_angle), (10, 10), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
+        # cv2.putText(img[i], str(text_angle), (10, 10), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
         # text_grad_angle = grad_angle[0, i, 0]
         # cv2.putText(img[i], str(text_grad_angle),  (10,30), font, 0.4, (0,0,0), 2, cv2.LINE_AA)
     return img

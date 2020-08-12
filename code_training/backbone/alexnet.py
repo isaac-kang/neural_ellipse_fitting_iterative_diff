@@ -93,7 +93,7 @@ def alexnet_v2(inputs,
       or None).
     end_points: a dict of tensors with intermediate activations.
   """
-  with tf.variable_scope(scope, 'alexnet_v2', [inputs]) as sc:
+  with tf.variable_scope(scope, 'alexnet_v2', [inputs], reuse=tf.AUTO_REUSE) as sc:
     end_points_collection = sc.original_name_scope + '_end_points'
     # Collect outputs for conv2d, fully_connected and max_pool2d.
     with slim.arg_scope([slim.conv2d, slim.fully_connected, slim.max_pool2d],

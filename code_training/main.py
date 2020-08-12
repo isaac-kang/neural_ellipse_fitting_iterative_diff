@@ -18,11 +18,6 @@ MAIN_DIR = os.getcwd()
 OUTPUT_DIR = os.path.join(MAIN_DIR, "../experiments")
 FLAGS = set_default_training_options.get_flags(MAIN_DIR)
 
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
-
-
 def main(args):
     #==================
     #     Config
@@ -54,6 +49,7 @@ def main(args):
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction=1.0
     config.allow_soft_placement = True
     config.log_device_placement = False
 

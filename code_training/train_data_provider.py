@@ -22,9 +22,7 @@ def queue_worker(gen_obj, batch_size, batch_dict, queue_in, queue_out):
         while True:
             idx = queue_in.get()
             for i in range(batch_size):
-                
                 sample_dict = g.__next__()
-
                 if sys.platform == 'win32':
                     assert False
                 else:
@@ -35,39 +33,31 @@ def queue_worker(gen_obj, batch_size, batch_dict, queue_in, queue_out):
     except EOFError:
         return
 
-def generate_batch(gen_obj, batch_size=64, num_processes=4 ):
+def generate_batch(gen_obj, batch_size=64, num_processes=4):
     #image_size = gen_obj.image_size
     #channels = gen_obj.channels
     #num_landmarks = NUM_LANDMARKS
-
+    print('num_processes', num_processes)
     num_slots = num_processes * 1
-
     batch_pool_dict = {}
     if sys.platform == 'win32':
         assert False
     else:
         for idx, name in enumerate(DATA_FIELD_NAMES):
             batch_pool_dict[name]  = sharedmem.empty((num_slots, batch_size,) + DATA_FIELD_SHAPES[idx], dtype=DATA_FIELD_TYPES[idx] )
-
-
     manager = multiprocessing.Manager()
     queue_in = manager.Queue()
     queue_out = manager.Queue()
-
     processes = []
     for i in range(num_processes):
         processes.append( 
             multiprocessing.Process(target=queue_worker, args=(
                 gen_obj, batch_size, batch_pool_dict, queue_in, queue_out
             )))
-    
-
     for p in processes:
         p.start()
-
     for i in range(num_slots):
         queue_in.put(i)
-
     try:
         while True:
             idx = queue_out.get()
@@ -82,9 +72,7 @@ def generate_batch(gen_obj, batch_size=64, num_processes=4 ):
                 for i, name in enumerate(DATA_FIELD_NAMES):
                     yield_list.append( np.array( batch_pool_dict[ DATA_FIELD_NAMES[i] ] [idx,...], dtype = DATA_FIELD_TYPES[i] ) )
                 yield yield_list
-                
             queue_in.put(idx)
-
     except EOFError:
         for p in processes:
             p.join()
@@ -92,19 +80,16 @@ def generate_batch(gen_obj, batch_size=64, num_processes=4 ):
 
 if __name__ == "__main__":
     import time 
-    from train_sample_generator import TrainDataGenerator 
-
+    from train_sample_generator import TrainDataGenerator
     import sharedmem
     import threading
-    
-    datadir = ['/data/isaackang/Koo/data/coco/val2017/']
+    datadir = [os.getcwd() + '../data/coco/val2017/']
     ########################## data pipeline ####################
     tic = time.time()
     data_generator = TrainDataGenerator(datadir)
     toc = time.time()
     print("###################################")
     print(f'data loading elapsed={toc-tic}sec')
-
     batch_generator = generate_batch(data_generator,
             batch_size=16,
             num_processes=4)
@@ -114,8 +99,6 @@ if __name__ == "__main__":
         with lock:
             batch_data_list = batch_generator.__next__()
         return batch_data_list
-
-
     while True:
         batch_data_list =  generate_batch()
         for idx, name in enumerate(DATA_FIELD_NAMES):
