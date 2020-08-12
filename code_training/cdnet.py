@@ -5,6 +5,19 @@ import sys
 import time
 import graph_structures
 import cv2
+<<<<<<< HEAD
+=======
+
+sys.path.append(os.path.join(os.getcwd(), "code_commons"))
+from global_constants import *
+from tfrecord_utils import *
+import auxiliary_ftns
+
+from backbone import alexnet
+from train_sample_generator import *
+import train_data_provider
+
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
 import sharedmem
 import threading
 import tensorflow as tf
@@ -30,6 +43,21 @@ class CDnet(object):
 
     def __init__(self, args=None):
         self.args = args
+<<<<<<< HEAD
+=======
+
+        # input dim
+        """
+        self.input_image_width = IMAGE_WIDTH
+        self.input_image_height = IMAGE_HEIGHT
+        self.input_num_channels = IMAGE_CHANNEL
+        self.training_batch_size = self.args.batch_size
+
+        self.input_image_size = IMAGE_WIDTH
+        self.max_feature_depth = 256 # 256
+        """
+
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
         triangles = []
         for i in range(NUM_BDRY_POINTS):
             triangles.append([i, (i + 1) % NUM_BDRY_POINTS, NUM_BDRY_POINTS])
@@ -158,6 +186,7 @@ class CDnet(object):
             self.add_saver()
 
     def train_initialize(self, datadir=None, cpu_mode=False):
+<<<<<<< HEAD
         # make batch
         batch_data_dict = self.make_batch_data_dict(datadir)
         # assign gpu
@@ -165,6 +194,57 @@ class CDnet(object):
         num_gpus = len(gpus)
         assert(self.args.batch_size % num_gpus == 0)
         batch_slice = self.args.batch_size // num_gpus
+=======
+
+        # tfrecord
+        if len(datadir) == 1 and os.path.splitext(datadir[0])[-1] == ".tfrecords":
+            batch_data_dict = make_batch(datadir, self.args.batch_size, shuffle=True, num_epochs=10000)
+
+        else:
+            ########################## data pipeline ####################
+            tic = time.time()
+            # random img, mask, center in data dir -> applyt distortion
+            data_generator = TrainDataGenerator(datadir)
+            toc = time.time()
+            print("###########################")
+            print(f'data loading={toc-tic}sec')
+
+            # generate batch
+            batch_generator = train_data_provider.generate_batch(data_generator,
+                                                                 batch_size=self.args.batch_size,
+                                                                 num_processes=self.args.num_preprocessing_processes)
+
+            lock = threading.Lock()
+
+            def generate_batch():
+                with lock:
+                    batch_data_list = batch_generator.__next__()
+                return batch_data_list
+            ################################################################
+
+            batch_list = tf.py_func(generate_batch, [], DATA_FIELD_TYPES, stateful=True)
+
+            batch_data_dict = {}
+
+            for idx, name in enumerate(DATA_FIELD_NAMES):
+                batch_data_dict[name] = batch_list[idx]
+                batch_data_dict[name].set_shape((self.args.batch_size,) + DATA_FIELD_SHAPES[idx])
+                print(DATA_FIELD_NAMES[idx] + ":", batch_data_dict[name].shape, batch_data_dict[name].dtype)
+
+        self.batch_data_dict = batch_data_dict
+
+        if cpu_mode is True:
+            gpus = ['/device:CPU:0']
+            print(gpus)
+        else:
+            gpus = get_available_gpus()
+            print(gpus)
+
+        num_gpus = len(gpus)
+        assert(self.args.batch_size % num_gpus == 0)
+        batch_slice = self.args.batch_size // num_gpus
+
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
         tower_losses = []
         print('gpus : ', gpus, self.args.gpu)
         gpus = [gpus[int(self.args.gpu)]]
@@ -282,8 +362,17 @@ class CDnet(object):
         x = tf.concat((x0, x1, x2), axis=-1)
         return x
 
+<<<<<<< HEAD
     def add_summary_per_gpu(self, gpu_idx, image_slice, error_map_raw, all_points_1, all_points_2, region_loss, center_distance_loss, loss):
         N = self.args.num_summary_images
+=======
+    def add_summary_per_gpu(self, gpu_idx, image_slice, mask_slice, rendering_result, error_map_raw, center_points, all_points, loss, center_distance_loss, region_loss, area_diff_loss):
+        N = self.args.num_summary_images
+
+        #tf.summary.histogram("estimated_corners", center_points)
+        #tf.summary.histogram("gt_histogram", mask_slice)
+        #tf.summary.histogram("est_histogram", rendering_result)
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
 
         with tf.variable_scope('summary_%s' % (gpu_idx)):
             tf.summary.scalar("loss_%s_th_gpu" % (gpu_idx), loss)
@@ -294,9 +383,23 @@ class CDnet(object):
             edge_slice = ((image_slice) / np.sqrt(2.0) + 0.5)[:, :, :, 3]
             edge_slice = CDnet.convert_to_color_image(edge_slice)
 
+<<<<<<< HEAD
             # Input Image
             image_slice = ((image_slice) / np.sqrt(2.0) + 0.5)[:, :, :, :3]
             input_with_lines = tf.py_func(draw_circle, [image_slice[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
+=======
+            # 3. Estimate results on Input Image
+            images_with_lines = tf.py_func(draw_contour_32f, [image_slice[:N], all_points[:N]], tf.float32)
+            images_with_lines = tf.py_func(draw_circle, [images_with_lines[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
+            images_with_lines = tf.py_func(draw_circle, [images_with_lines[:N], self.estimate_center[:N], (1, 1, 0), 2], tf.float32)
+            images_with_lines = tf.py_func(draw_angle, [images_with_lines[:N], self.estimate_center[:N], self.radius1[:N], self.angle[:N], self.angle_scale,
+                                                        self.grad_angle[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
+
+            # 4. Estimate render
+            rendering_result = CDnet.convert_to_color_image(rendering_result)
+            rendering_result = tf.py_func(draw_grad, [rendering_result[:N], self.grad_centerx[:N], self.grad_centery[:N], self.grad_angle[:N],
+                                                      self.grad_radius1[:N], self.grad_radius2[:N]], tf.float32)
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
 
             # STAGE1 estimate results on Input Image
             images_with_lines_1 = tf.py_func(draw_contour_32f, [image_slice[:N], all_points_1[:N]], tf.float32)
@@ -364,6 +467,23 @@ class CDnet(object):
             save_path = self.saver.save(sess, ckpt_filename, global_step=global_step)
             tqdm.write("saved at" + save_path)
 
+<<<<<<< HEAD
+=======
+        # if global_step % self.args.eval_every == 0 and self.num_validation_samples != 0:
+        #     eval_loss = self.evaluate_validation_loss(sess)
+        #     print("evaluation loss:", eval_loss)
+        #     summary = tf.Summary()
+        #     with tf.variable_scope("validation"):
+        #         summary.value.add(tag="validation_loss", simple_value=eval_loss)
+        #         self.writer.add_summary(summary, global_step=global_step)
+
+        # write examples to the examples directory
+        """
+        if  global_step % self.args.save_examples_every == 0:
+            print("save examples - nothing done")            
+        """
+
+>>>>>>> 629b1c860452b2d8d5a7383fbf954654de87ba9b
     def train(self, sess):
         self.writer = tf.summary.FileWriter(self.args.train_dir, sess.graph)
 
