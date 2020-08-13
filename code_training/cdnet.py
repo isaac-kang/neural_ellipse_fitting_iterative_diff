@@ -145,7 +145,51 @@ class CDnet(object):
         # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
         rendering_result_2, self.M_2 = self.render_ellipse(batch_slice, centerx_2, centery_2, angle_2, radius1_2, radius2_2)
         
-        return parameter_vectors_tf_2, rendering_result_2
+        #========= STAGE 3 =============
+        input_3 = tf.concat([input_1[:, :, :, :4], tf.expand_dims(rendering_result_2, axis=-1)], axis=-1)
+        parameter_vectors_stf_3 = self.add_alexnet(input_3)
+        parameter_vectors_tf_3 = self.scale_compensation(parameter_vectors_stf_3)
+
+        centerx_3 = parameter_vectors_tf_3[:, 0:1]
+        centery_3 = parameter_vectors_tf_3[:, 1:2]
+        angle_3 = parameter_vectors_tf_3[:, 2:3]
+        radius1_3 = parameter_vectors_tf_3[:, 3:4]
+        radius2_3 = parameter_vectors_tf_3[:, 4:5]
+        # a > b
+        radius1_3 = radius1_3 + radius2_3
+        self.centerx_3 = centerx_3
+        self.centery_3 = centery_3
+        self.angle_3 = angle_3
+        self.radius1_3 = radius1_3
+        self.radius2_3 = radius2_3
+        self.estimate_center_3 = tf.concat([self.centerx_3, self.centery_3], axis=1)
+
+        # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
+        rendering_result_3, self.M_3 = self.render_ellipse(batch_slice, centerx_3, centery_3, angle_3, radius1_3, radius2_3)
+        
+        #========= STAGE 2 =============
+        input_4 = tf.concat([input_1[:, :, :, :4], tf.expand_dims(rendering_result_3, axis=-1)], axis=-1)
+        parameter_vectors_stf_4 = self.add_alexnet(input_4)
+        parameter_vectors_tf_4 = self.scale_compensation(parameter_vectors_stf_4)
+
+        centerx_4 = parameter_vectors_tf_4[:, 0:1]
+        centery_4 = parameter_vectors_tf_4[:, 1:2]
+        angle_4 = parameter_vectors_tf_4[:, 2:3]
+        radius1_4 = parameter_vectors_tf_4[:, 3:4]
+        radius2_4 = parameter_vectors_tf_4[:, 4:5]
+        # a > b
+        radius1_4 = radius1_4 + radius2_4
+        self.centerx_4 = centerx_4
+        self.centery_4 = centery_4
+        self.angle_4 = angle_4
+        self.radius1_4 = radius1_4
+        self.radius2_4 = radius2_4
+        self.estimate_center_4 = tf.concat([self.centerx_4, self.centery_4], axis=1)
+
+        # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
+        rendering_result_4, self.M_4 = self.render_ellipse(batch_slice, centerx_4, centery_4, angle_4, radius1_4, radius2_4)
+        
+        return parameter_vectors_tf_4, rendering_result_4
 
     def runttime_initialize(self, add_saver=True):
         batch_slice = 1
@@ -193,32 +237,28 @@ class CDnet(object):
                 # region loss
                 error_map = tf.abs(rendering_result_2 - mask_slice)
                 error_map_raw = rendering_result_2 - mask_slice
-                region_loss = 1000.0 * tf.reduce_mean(error_map)
+                region_loss_gpu = 1000.0 * tf.reduce_mean(error_map)
 
                 # center point loss
-                center_points = M_2[:, -1, :2]
+                center_points = self.M_4[:, -1, :2]
                 center_distance_loss = tf.abs(center_points - maskcenter_slice)
                 center_distance_loss = tf.math.maximum(center_distance_loss, 5)
-                center_distance_loss = tf.reduce_sum(0.1 * center_distance_loss)
+                center_distance_loss_gpu = tf.reduce_sum(0.1 * center_distance_loss)
                 
-                loss = 10 * center_distance_loss + region_loss
+                loss_gpu = 10 * center_distance_loss_gpu + region_loss_gpu
 
-                self.grad_centerx_1 = tf.gradients(loss, self.centerx_1)
-                self.grad_centery_1 = tf.gradients(loss, self.centery_1)
-                self.grad_angle_1 = tf.gradients(loss, self.angle_1)
-                self.grad_radius1_1 = tf.gradients(loss, self.radius1_1)
-                self.grad_radius2_1 = tf.gradients(loss, self.radius2_1)
-                self.grad_centerx_2 = tf.gradients(loss, self.centerx_2)
-                self.grad_centery_2 = tf.gradients(loss, self.centery_2)
-                self.grad_angle_2 = tf.gradients(loss, self.angle_2)
-                self.grad_radius1_2 = tf.gradients(loss, self.radius1_2)
-                self.grad_radius2_2 = tf.gradients(loss, self.radius2_2)
+                self.grad_angle_1 = tf.gradients(loss_gpu, self.angle_1)
+                self.grad_angle_2 = tf.gradients(loss_gpu, self.angle_2)
+                self.grad_angle_3 = tf.gradients(loss_gpu, self.angle_3)
+                self.grad_angle_4 = tf.gradients(loss_gpu, self.angle_4)
+
                 with tf.variable_scope('loss'):
-                    tower_losses.append(loss)
+                    tower_losses.append(loss_gpu)
 
                 self.add_summary_per_gpu(idx_gpu, image_slice, error_map_raw,
+                    region_loss_gpu, center_distance_loss_gpu, loss_gpu,
                     self.M_1[:, :, :2], self.M_2[:, :, :2], self.M_3[:, :, :2], self.M_4[:, :, :2],
-                    region_loss, center_distance_loss, loss)
+                    )
 
         self.loss = tf.reduce_mean(tower_losses)
         self.add_gradient()
@@ -240,7 +280,8 @@ class CDnet(object):
         x = tf.concat((x0, x1, x2), axis=-1)
         return x
 
-    def add_summary_per_gpu(self, gpu_idx, image_slice, error_map_raw, all_points_1, all_points_2, region_loss, center_distance_loss, loss):
+    def add_summary_per_gpu(self, gpu_idx, image_slice, error_map_raw, region_loss, center_distance_loss, loss,
+        M_1, M_2, M_3, M_4):
         N = self.args.num_summary_images
 
         with tf.variable_scope('summary_%s' % (gpu_idx)):
@@ -248,27 +289,41 @@ class CDnet(object):
             tf.summary.scalar("region_loss_%s_th_gpu" % (gpu_idx), region_loss)
             tf.summary.scalar("center_distance_loss_%s_th_gpu" % (gpu_idx), center_distance_loss)
 
-            # Edge map 
-            edge_slice = ((image_slice) / np.sqrt(2.0) + 0.5)[:, :, :, 3]
-            edge_slice = CDnet.convert_to_color_image(edge_slice)
+            # # Edge map 
+            # edge_slice = ((image_slice) / np.sqrt(2.0) + 0.5)[:, :, :, 3]
+            # edge_slice = CDnet.convert_to_color_image(edge_slice)
 
             # Input Image
             image_slice = ((image_slice) / np.sqrt(2.0) + 0.5)[:, :, :, :3]
             input_with_lines = tf.py_func(draw_circle, [image_slice[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
 
             # STAGE1 estimate results on Input Image
-            images_with_lines_1 = tf.py_func(draw_contour_32f, [image_slice[:N], all_points_1[:N]], tf.float32)
+            images_with_lines_1 = tf.py_func(draw_contour_32f, [image_slice[:N], M_1[:, :, :2][:N]], tf.float32)
             images_with_lines_1 = tf.py_func(draw_circle, [images_with_lines_1[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
             images_with_lines_1 = tf.py_func(draw_circle, [images_with_lines_1[:N], self.estimate_center_1[:N], (1, 1, 0), 2], tf.float32)
             images_with_lines_1 = tf.py_func(draw_angle, [images_with_lines_1[:N], self.estimate_center_1[:N], self.radius1_1[:N], self.angle_1[:N], self.angle_scale,
                                                         self.grad_angle_1[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
 
             # STAGE2 estimate results on Input Image
-            images_with_lines_2 = tf.py_func(draw_contour_32f, [image_slice[:N], all_points_2[:N]], tf.float32)
+            images_with_lines_2 = tf.py_func(draw_contour_32f, [image_slice[:N], M_2[:, :, :2][:N]], tf.float32)
             images_with_lines_2 = tf.py_func(draw_circle, [images_with_lines_2[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
             images_with_lines_2 = tf.py_func(draw_circle, [images_with_lines_2[:N], self.estimate_center_2[:N], (1, 1, 0), 2], tf.float32)
             images_with_lines_2 = tf.py_func(draw_angle, [images_with_lines_2[:N], self.estimate_center_2[:N], self.radius1_2[:N], self.angle_2[:N], self.angle_scale,
                                                         self.grad_angle_2[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
+
+            # STAGE3 estimate results on Input Image
+            images_with_lines_3 = tf.py_func(draw_contour_32f, [image_slice[:N], M_3[:, :, :2][:N]], tf.float32)
+            images_with_lines_3 = tf.py_func(draw_circle, [images_with_lines_3[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
+            images_with_lines_3 = tf.py_func(draw_circle, [images_with_lines_3[:N], self.estimate_center_3[:N], (1, 1, 0), 2], tf.float32)
+            images_with_lines_3 = tf.py_func(draw_angle, [images_with_lines_3[:N], self.estimate_center_3[:N], self.radius1_3[:N], self.angle_3[:N], self.angle_scale,
+                                                        self.grad_angle_3[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
+
+            # STAGE2 estimate results on Input Image
+            images_with_lines_4 = tf.py_func(draw_contour_32f, [image_slice[:N], M_4[:, :, :2][:N]], tf.float32)
+            images_with_lines_4 = tf.py_func(draw_circle, [images_with_lines_4[:N], self.maskcenter_slice[:N], (1, 0, 0), 3], tf.float32)
+            images_with_lines_4 = tf.py_func(draw_circle, [images_with_lines_4[:N], self.estimate_center_4[:N], (1, 1, 0), 2], tf.float32)
+            images_with_lines_4 = tf.py_func(draw_angle, [images_with_lines_4[:N], self.estimate_center_4[:N], self.radius1_4[:N], self.angle_4[:N], self.angle_scale,
+                                                        self.grad_angle_4[:N], self.mask_axis_x_pts_slice, self.mask_axis_y_pts_slice], tf.float32)
 
             # Error map
             error_map = CDnet.convert_raw_to_color_image(error_map_raw)
@@ -276,9 +331,10 @@ class CDnet(object):
             # Combine together
             input_prediction = 255.0 * tf.concat(
                 [input_with_lines[:N],
-                edge_slice[:N],
                 images_with_lines_1[:N],
                 images_with_lines_2[:N],
+                images_with_lines_3[:N],
+                images_with_lines_4[:N],
                 error_map[:N]
                  ], axis=2)
             input_prediction = tf.clip_by_value(input_prediction, 0.0, 255.0)
