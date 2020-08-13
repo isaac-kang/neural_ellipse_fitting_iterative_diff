@@ -62,6 +62,7 @@ def run_test(sess, cdnet, FLAGS, mode='folder', frame_size=None, srcname=None,
         network_input = (src.copy() - 0.5) * np.sqrt(2.0)
         mask_dummy = np.zeros((IMAGE_WIDTH, IMAGE_HEIGHT, 3), dtype=np.uint8)
         mask_dummy = cv2.ellipse(mask_dummy, (IMAGE_WIDTH // 2, IMAGE_HEIGHT // 2), (IMAGE_WIDTH // 3, IMAGE_HEIGHT // 4), 0, 0, 360, (255, 255, 255), cv2.FILLED)
+        mask_dummy = np.expand_dims(mask_dummy, axis=-1)
         mask_dummy = mask_dummy.astype(np.float32) / 255.0
         mask_dummy = np.clip(mask_dummy * 1000, 0, 255.0)
         mask_dummy = mask_dummy[:, :, 0].astype(np.float32) / 255.0

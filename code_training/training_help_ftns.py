@@ -1,15 +1,12 @@
 import tensorflow as tf 
 import os 
-#############################################################################
-# Initialization                                                             
-#############################################################################
-
 
 def initialize_model(sess, 
                      model, 
                      train_dir, 
                      expect_exists=False, 
                      init_op = True):
+    """ Read and load checkpoint file """
 
     ckpt = tf.train.get_checkpoint_state(train_dir)
     v2_path = ckpt.model_checkpoint_path + ".index" if ckpt else ""
