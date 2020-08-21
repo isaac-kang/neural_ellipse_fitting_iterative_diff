@@ -101,8 +101,123 @@ class CDnet(object):
         rendering_result = output_dictionary["rendering_results"][..., 0]
         return rendering_result, M
 
+    def gaussian_heatmap(self, joints, batch_slice, sigma=8):
+        num_joints = len(joints)
+        image_size = heatmap_size = np.array([IMAGE_HEIGHT, IMAGE_WIDTH])
+        target = tf.zeros((batch_slice, num_joints, heatmap_size[1], heatmap_size[0]), dtype=np.float32)
+        tmp_size = 3 * sigma
+
+        for joint_id in range(num_joints):
+            feat_stride = image_size / heatmap_size
+            mu_x = tf.cast(joints[joint_id][0] / feat_stride[0] + 0.5, tf.int32)
+            mu_y = tf.cast(joints[joint_id][1] / feat_stride[1] + 0.5, tf.int32)
+            
+
+            # Check that any part of the gaussian is in-bounds
+            ul = [tf.cast(mu_x - tmp_size, tf.int32), tf.cast(mu_y - tmp_size, tf.int32)]
+            br = [tf.cast(mu_x + tmp_size + 1, tf.int32), tf.cast(mu_y + tmp_size + 1, tf.int32)]
+
+
+            # Generate gaussian
+            size = 2 * tmp_size + 1
+            x = tf.range(0, size, dtype=tf.float32)
+            y = tf.expand_dims(x, 1)
+            x0 = y0 = size // 2
+            # The gaussian is not normalized, we want the center value equal 1
+            g = tf.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma **2))
+
+            # Usable gaussian range
+            g_x = tf.maximum(0, -ul[0]), tf.minimum(br[0], heatmap_size[0]) - ul[0]
+            g_y = tf.maximum(0, -ul[1]), tf.minimum(br[1], heatmap_size[1]) - ul[1]
+            # Image range
+            img_x = tf.maximum(0, ul[0]), tf.minimum(br[0], heatmap_size[0])
+            img_y = tf.maximum(0, ul[1]), tf.minimum(br[1], heatmap_size[1])
+            
+            for b in range(batch_slice):
+                import ipdb
+                ipdb.set_trace()
+                g_start_y = g_y[0][b]
+                g_end_y = g_y[1][b]
+                g_start_x = g_x[0][b]
+                g_end_x = g_x[1][b]
+
+                gaussian_part = tf.gather(g, [g_y[0][b]:g_x[0][b], g_y[1][b]:g_x[1][b]])
+                target[b, joint_id][img_y[0][b]:img_y[1][b], img_x[0][b]:img_x[1][b]] = g[g_y[0][b]:g_y[1][b], g_x[0][b]:g_x[1][b]]
+
+        target = np.moveaxis(target, 1, -1)
+
+        return target
+
+    def gaussian_heatmap(self, joints, batch_slice, sigma=8):
+        num_joints = len(joints)
+        image_size = heatmap_size = np.array([IMAGE_HEIGHT, IMAGE_WIDTH])
+        target = tf.zeros((batch_slice, num_joints, heatmap_size[1], heatmap_size[0]), dtype=np.float32)
+        tmp_size = 3 * sigma
+
+        for joint_id in range(num_joints):
+            feat_stride = image_size / heatmap_size
+            mu_x = tf.cast(joints[joint_id][0] / feat_stride[0] + 0.5, tf.int32)
+            mu_y = tf.cast(joints[joint_id][1] / feat_stride[1] + 0.5, tf.int32)
+            
+
+            # Check that any part of the gaussian is in-bounds
+            ul = [tf.cast(mu_x - tmp_size, tf.int32), tf.cast(mu_y - tmp_size, tf.int32)]
+            br = [tf.cast(mu_x + tmp_size + 1, tf.int32), tf.cast(mu_y + tmp_size + 1, tf.int32)]
+
+
+            # Generate gaussian
+            size = 2 * tmp_size + 1
+            x = tf.range(0, size, dtype=tf.float32)
+            y = tf.expand_dims(x, 1)
+            x0 = y0 = size // 2
+            # The gaussian is not normalized, we want the center value equal 1
+            g = tf.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma **2))
+
+            # Usable gaussian range
+            g_x = tf.maximum(0, -ul[0]), tf.minimum(br[0], heatmap_size[0]) - ul[0]
+            g_y = tf.maximum(0, -ul[1]), tf.minimum(br[1], heatmap_size[1]) - ul[1]
+            # Image range
+            img_x = tf.maximum(0, ul[0]), tf.minimum(br[0], heatmap_size[0])
+            img_y = tf.maximum(0, ul[1]), tf.minimum(br[1], heatmap_size[1])
+            
+            for b in range(batch_slice):
+                import ipdb
+                ipdb.set_trace()
+                g_start_y = g_y[0][b]
+                g_end_y = g_y[1][b]
+                g_start_x = g_x[0][b]
+                g_end_x = g_x[1][b]
+
+                gaussian_part = tf.gather(g, [g_y[0][b]:g_x[0][b], g_y[1][b]:g_x[1][b]])
+                target[b, joint_id][img_y[0][b]:img_y[1][b], img_x[0][b]:img_x[1][b]] = g[g_y[0][b]:g_y[1][b], g_x[0][b]:g_x[1][b]]
+
+        target = np.moveaxis(target, 1, -1)
+
+        return target
+
+    def get_heatmap(self, center_x, center_y, angle, axis_x, axis_y, batch_slice):
+        theta_rad = 2 * np.pi * angle
+        center_coord = [center_x, center_y]
+        a_coord_0 = [center_x + axis_x * tf.cos(theta_rad), center_y + axis_x * tf.cos(theta_rad)]
+        a_coord_1 = [center_x - axis_x * tf.cos(theta_rad), center_y - axis_x * tf.cos(theta_rad)]
+        b_coord_0 = [center_x + axis_y * tf.cos(theta_rad + np.pi / 2.), center_y + axis_y * tf.cos(theta_rad + np.pi / 2.)]
+        b_coord_1 = [center_x - axis_y * tf.cos(theta_rad + np.pi / 2.), center_y - axis_y * tf.cos(theta_rad + np.pi / 2.)]
+        
+        joints_cond_0 = [center_coord, a_coord_0, a_coord_1, b_coord_0, b_coord_1]
+        heatmap_cond_0 = self.gaussian_heatmap(joints_cond_0, batch_slice)
+
+        joints_cond_1 = [center_coord, a_coord_1, a_coord_0, b_coord_1, b_coord_0]
+        heatmap_cond_1 = self.gaussian_heatmap(joints_cond_1, batch_slice)
+
+        heatmap = tf.where(tf.cos(theta_rad) < 0, heatmap_cond_1, heatmap_cond_0)
+
+        return heatmap
+
+
     def model(self, input_1, batch_slice=1):
         #========= STAGE 1 =============
+        img_n_edge = input_1[:, :, :, :4]
+
         parameter_vectors_stf_1 = self.add_alexnet(input_1)
         parameter_vectors_tf_1 = self.scale_compensation(parameter_vectors_stf_1)
 
@@ -124,7 +239,9 @@ class CDnet(object):
         rendering_result_1, self.M_1 = self.render_ellipse(batch_slice, centerx_1, centery_1, angle_1, radius1_1, radius2_1)
 
         #========= STAGE 2 =============
-        input_2 = tf.concat([input_1[:, :, :, :4], tf.expand_dims(rendering_result_1, axis=-1)], axis=-1)
+        heatmap_2 = self.get_heatmap(centerx_1, centery_1, angle_1, radius1_1, radius2_1, batch_slice)
+        mask_2 = tf.expand_dims(rendering_result_1, axis=-1)
+        input_2 = tf.concat([img_n_edge, heatmap_2, mask_2], axis=-1)
         parameter_vectors_stf_2 = self.add_alexnet(input_2)
         parameter_vectors_tf_2 = self.scale_compensation(parameter_vectors_stf_2)
 
@@ -143,10 +260,12 @@ class CDnet(object):
         self.estimate_center_2 = tf.concat([self.centerx_2, self.centery_2], axis=1)
 
         # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
-        rendering_result_2, self.M_2 = self.render_ellipse(batch_slice, centerx_2, centery_2, angle_2, radius1_2, radius2_2)
+        rendering_result_2, self.M_2 = self.render_ellipse(batch_slice, centerx_2, centery_2, angle_2, radius1_2, radius2_2, batch_slice)
         
         #========= STAGE 3 =============
-        input_3 = tf.concat([input_1[:, :, :, :4], tf.expand_dims(rendering_result_2, axis=-1)], axis=-1)
+        heatmap_3 = self.get_heatmap(centerx_2, centery_2, angle_2, radius1_2, radius2_2)
+        mask_3 = tf.expand_dims(rendering_result_2, axis=-1)
+        input_3 = tf.concat([img_n_edge, heatmap_3, mask_3], axis=-1)
         parameter_vectors_stf_3 = self.add_alexnet(input_3)
         parameter_vectors_tf_3 = self.scale_compensation(parameter_vectors_stf_3)
 
@@ -165,10 +284,12 @@ class CDnet(object):
         self.estimate_center_3 = tf.concat([self.centerx_3, self.centery_3], axis=1)
 
         # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
-        rendering_result_3, self.M_3 = self.render_ellipse(batch_slice, centerx_3, centery_3, angle_3, radius1_3, radius2_3)
+        rendering_result_3, self.M_3 = self.render_ellipse(batch_slice, centerx_3, centery_3, angle_3, radius1_3, radius2_3, batch_slice)
         
-        #========= STAGE 2 =============
-        input_4 = tf.concat([input_1[:, :, :, :4], tf.expand_dims(rendering_result_3, axis=-1)], axis=-1)
+        #========= STAGE 4 =============
+        heatmap_4 = self.get_heatmap(centerx_3, centery_3, angle_3, radius1_3, radius2_3)
+        mask_4 = tf.expand_dims(rendering_result_3, axis=-1)
+        input_4 = tf.concat([img_n_edge, heatmap_4, mask_4], axis=-1)
         parameter_vectors_stf_4 = self.add_alexnet(input_4)
         parameter_vectors_tf_4 = self.scale_compensation(parameter_vectors_stf_4)
 
@@ -187,7 +308,7 @@ class CDnet(object):
         self.estimate_center_4 = tf.concat([self.centerx_4, self.centery_4], axis=1)
 
         # DRAW ELLIPSE (5 estimated parameters -> 20 points + center -> triangularization -> rendering)
-        rendering_result_4, self.M_4 = self.render_ellipse(batch_slice, centerx_4, centery_4, angle_4, radius1_4, radius2_4)
+        rendering_result_4, self.M_4 = self.render_ellipse(batch_slice, centerx_4, centery_4, angle_4, radius1_4, radius2_4, batch_slice)
         
         return parameter_vectors_tf_4, rendering_result_4
 
@@ -201,64 +322,56 @@ class CDnet(object):
             self.add_saver()
 
     def train_initialize(self, datadir=None, cpu_mode=False):
-        # make batch
         batch_data_dict = self.make_batch_data_dict(datadir)
-        # assign gpu
-        gpus = get_available_gpus()
-        num_gpus = len(gpus)
-        assert(self.args.batch_size % num_gpus == 0)
-        batch_slice = self.args.batch_size // num_gpus
+        batch_slice = self.args.batch_size
         tower_losses = []
-        print('gpus : ', gpus, self.args.gpu)
-        gpus = [gpus[int(self.args.gpu)]]
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
+        gpus = os.environ["CUDA_VISIBLE_DEVICES"] = str(self.args.gpu) # temp hack
         for idx_gpu, gpu in enumerate(gpus):
-            print(gpu)
-            with tf.device(gpu):
-                # load batch
-                image_slice = batch_data_dict["image"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                mask_slice = batch_data_dict["mask"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                mask_dummy_slice = batch_data_dict["mask_dummy"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                maskcenter_slice = batch_data_dict["mask_center"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                mask_axis_x_pts_slice = batch_data_dict["mask_axis_x_pts"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                mask_axis_y_pts_slice = batch_data_dict["mask_axis_y_pts"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
-                maskcenter_slice = tf.squeeze(maskcenter_slice)
-                mask_axis_x_pts_slice = tf.squeeze(mask_axis_x_pts_slice)
-                mask_axis_y_pts_slice = tf.squeeze(mask_axis_y_pts_slice)
-                mask_dummy_slice = tf.expand_dims(mask_dummy_slice, axis=-1)
-                self.maskcenter_slice = maskcenter_slice
-                self.mask_axis_x_pts_slice = mask_axis_x_pts_slice
-                self.mask_axis_y_pts_slice = mask_axis_y_pts_slice
-                
-                input_1 = tf.concat([image_slice, mask_dummy_slice], axis=-1)
-                parameter_vectors_tf_2, rendering_result_2 = self.model(input_1, batch_slice=batch_slice)
+            image_slice = batch_data_dict["image"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            mask_slice = batch_data_dict["mask"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            mask_dummy_slice = batch_data_dict["mask_dummy"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            maskcenter_slice = batch_data_dict["mask_center"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            mask_axis_x_pts_slice = batch_data_dict["mask_axis_x_pts"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            mask_axis_y_pts_slice = batch_data_dict["mask_axis_y_pts"][batch_slice * idx_gpu:batch_slice * (idx_gpu + 1), ...]
+            maskcenter_slice = tf.squeeze(maskcenter_slice)
+            mask_axis_x_pts_slice = tf.squeeze(mask_axis_x_pts_slice)
+            mask_axis_y_pts_slice = tf.squeeze(mask_axis_y_pts_slice)
+            mask_dummy_slice = tf.expand_dims(mask_dummy_slice, axis=-1)
+            self.maskcenter_slice = maskcenter_slice
+            self.mask_axis_x_pts_slice = mask_axis_x_pts_slice
+            self.mask_axis_y_pts_slice = mask_axis_y_pts_slice
+            
+            input_1 = tf.concat([image_slice, mask_dummy_slice], axis=-1) # rgb(3), edge(1), heatmap(4), mask(1)
+            parameter_vectors_tf_2, rendering_result_2 = self.model(input_1, batch_slice=batch_slice)
 
-                #======= LOSS =================
+            #======= LOSS =================
 
-                # region loss
-                error_map = tf.abs(rendering_result_2 - mask_slice)
-                error_map_raw = rendering_result_2 - mask_slice
-                region_loss_gpu = 1000.0 * tf.reduce_mean(error_map)
+            # region loss
+            error_map = tf.abs(rendering_result_2 - mask_slice)
+            error_map_raw = rendering_result_2 - mask_slice
+            region_loss_gpu = 1000.0 * tf.reduce_mean(error_map)
 
-                # center point loss
-                center_points = self.M_4[:, -1, :2]
-                center_distance_loss = tf.abs(center_points - maskcenter_slice)
-                center_distance_loss = tf.math.maximum(center_distance_loss, 5)
-                center_distance_loss_gpu = tf.reduce_sum(0.1 * center_distance_loss)
-                
-                loss_gpu = 10 * center_distance_loss_gpu + region_loss_gpu
+            # center point loss
+            center_points = self.M_4[:, -1, :2]
+            center_distance_loss = tf.abs(center_points - maskcenter_slice)
+            center_distance_loss = tf.math.maximum(center_distance_loss, 5)
+            center_distance_loss_gpu = tf.reduce_sum(0.1 * center_distance_loss)
+            
+            loss_gpu = 10 * center_distance_loss_gpu + region_loss_gpu
 
-                self.grad_angle_1 = tf.gradients(loss_gpu, self.angle_1)
-                self.grad_angle_2 = tf.gradients(loss_gpu, self.angle_2)
-                self.grad_angle_3 = tf.gradients(loss_gpu, self.angle_3)
-                self.grad_angle_4 = tf.gradients(loss_gpu, self.angle_4)
+            self.grad_angle_1 = tf.gradients(loss_gpu, self.angle_1)
+            self.grad_angle_2 = tf.gradients(loss_gpu, self.angle_2)
+            self.grad_angle_3 = tf.gradients(loss_gpu, self.angle_3)
+            self.grad_angle_4 = tf.gradients(loss_gpu, self.angle_4)
 
-                with tf.variable_scope('loss'):
-                    tower_losses.append(loss_gpu)
+            with tf.variable_scope('loss'):
+                tower_losses.append(loss_gpu)
 
-                self.add_summary_per_gpu(idx_gpu, image_slice, error_map_raw,
-                    region_loss_gpu, center_distance_loss_gpu, loss_gpu,
-                    self.M_1[:, :, :2], self.M_2[:, :, :2], self.M_3[:, :, :2], self.M_4[:, :, :2],
-                    )
+            self.add_summary_per_gpu(idx_gpu, image_slice, error_map_raw,
+                region_loss_gpu, center_distance_loss_gpu, loss_gpu,
+                self.M_1[:, :, :2], self.M_2[:, :, :2], self.M_3[:, :, :2], self.M_4[:, :, :2],
+                )
 
         self.loss = tf.reduce_mean(tower_losses)
         self.add_gradient()

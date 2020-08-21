@@ -218,10 +218,6 @@ class TrainDataGenerator:
         mask_axis_y_pts_end = (T[:2] @ mask_axis_y_pts_end).T
         mask_axis_y_pts = np.concatenate((mask_axis_y_pts_start, mask_axis_y_pts_end))
 
-        # apply geometric_distortion to annoatation
-        # annotated_center = np.array( [annotated_center[0], annotated_center[1], 1.0], dtype = np.float32 )
-        # annotated_center = ( T[:2] @ annotated_center).T
-
         # apply geometric_distortion to mask
         mask = cv2.warpAffine(mask, T[:2], (image_width, image_height), flags=cv2.INTER_CUBIC, borderValue=(0, 0, 0))
 
@@ -253,21 +249,20 @@ class TrainDataGenerator:
         
         if self.noise:
             if np.random.randint(3) == 0:
-                #   Blur
+                # BLUR
                 blur_radius = int((np.random.normal() * 1.5) ** 2 + 0.5) * 2 + 1
                 if blur_radius > 0:
                     canvas = cv2.GaussianBlur(canvas, (blur_radius, blur_radius), 0)
 
             
             if np.random.randint(3) == 0:
-                #   Darken
+                # DARKEN
                 canvas = (canvas.astype('float32') * np.random.uniform(0.5, 1)).astype('uint8')
 
 
             
             if np.random.randint(3) == 0:
-                #   Blocker
-                # not being used right now
+                #  BLOCKER (not being used right now)
                 margin = 0.1 * IMAGE_WIDTH 
                 c_x = np.random.uniform(margin, IMAGE_WIDTH - margin)
                 c_y = np.random.uniform(margin, IMAGE_HEIGHT - margin)
@@ -295,30 +290,47 @@ class TrainDataGenerator:
                 color = colors[np.random.randint(len(colors))]
                 cv2.fillConvexPoly(canvas.astype('float32'), pts, color)
 
+
+        # STRENGTH, UNIFORM, GAUSSIAN NOISE
         canvas = canvas.astype('float32')
-        # # add strength noise
+        # add strength noise
         canvas = canvas * np.random.uniform( 0.5,1.5 )
-        # # add uniform noise
+        # add uniform noise
         canvas = canvas + np.random.uniform( -50,50 )
         # add gaussian noise
         if np.random.randint(3) == 0:
             noise = np.random.normal(size=[IMAGE_HEIGHT, IMAGE_WIDTH, 3]) * 0.15
             canvas += noise
         image_show = canvas
-        # cv2.imwrite(os.getcwd() + '/what/image' + str(np.random.randint(10)) + '.png', image_show)
-        # edge map
+
+
+        # EDGE MAP
         gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
         edge_map = cv2.Canny(gray.astype(np.uint8), 20, 100)
         edge_map = np.expand_dims(edge_map, axis=-1)
-        # cv2.imwrite(os.getcwd() + '/what/edged' + str(np.random.randint(10)) + '.png', edge_map)
         edge_map = (edge_map / 255.0 - 0.5) * np.sqrt(2.0)
         canvas = (canvas / 255.0 - 0.5) * np.sqrt(2.0)
         canvas = canvas[:, :, ::-1]
-        # concat with edge map
-        canvas = np.concatenate((canvas, edge_map), axis=-1)
+
+
+        # GAUSSIAN HEATMAP
+        theta_rad = np.pi / 180. * theta
+        center_coord = [center_x, center_y]
+        a_coord_0 = [center_x + axis_x * np.cos(theta_rad), center_y + axis_x * np.cos(theta_rad)]
+        a_coord_1 = [center_x - axis_x * np.cos(theta_rad), center_y - axis_x * np.cos(theta_rad)]
+        b_coord_0 = [center_x + axis_y * np.cos(theta_rad + np.pi / 2.), center_y + axis_y * np.cos(theta_rad + np.pi / 2.)]
+        b_coord_1 = [center_x - axis_y * np.cos(theta_rad + np.pi / 2.), center_y - axis_y * np.cos(theta_rad + np.pi / 2.)]
+        if np.cos(theta_rad) < 0:
+            a_coord_0, a_coord_1 = a_coord_1, a_coord_0
+            b_coord_0, b_coord_1 = b_coord_1, b_coord_0
+        joints = [center_coord, a_coord_0, a_coord_1, b_coord_0, b_coord_1]
+        heatmap, _ = gaussian_heatmap(joints)
+
+        # CONCATENATE
+        canvas = np.concatenate((canvas, edge_map, heatmap), axis=-1)
         dict = {}
-        dict["image"] = canvas # (224, 224, 4)
+        dict["image"] = canvas # (224, 224, 9)
         dict["mask"] = mask
         dict["mask_dummy"] = mask_dummy
         dict["mask_center"] = mask_center

@@ -21,5 +21,5 @@ NUM_BDRY_POINTS = 20
 DATA_FIELD_NAMES = ["image", "mask", "mask_dummy", "mask_center", "mask_axis_x_pts", "mask_axis_y_pts"]
 DATA_FIELD_TYPES = [ np.float32, np.float32, np.float32, np.float32, np.float32, np.float32]
 DATA_FIELD_TF_TYPES = [ tf.float32, tf.float32, tf.float32, tf.float32, tf.float32, tf.float32]
-DATA_FIELD_SHAPES = [ (IMAGE_HEIGHT,IMAGE_WIDTH,4), (IMAGE_HEIGHT,IMAGE_WIDTH), (IMAGE_HEIGHT,IMAGE_WIDTH), (1,2), (1, 4), (1, 4)]
+DATA_FIELD_SHAPES = [ (IMAGE_HEIGHT,IMAGE_WIDTH,9), (IMAGE_HEIGHT,IMAGE_WIDTH), (IMAGE_HEIGHT,IMAGE_WIDTH), (1,2), (1, 4), (1, 4)]
 
